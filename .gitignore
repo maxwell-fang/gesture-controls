@@ -1,0 +1,8 @@
+*_dataset/
+.vscode/
+*/__pycache__/
+
+*.png
+*.pt
+*.mp4
+*.pdf
