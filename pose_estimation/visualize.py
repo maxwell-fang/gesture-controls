@@ -7,24 +7,41 @@ from utils import load_model
 from dataset import generate_heatmaps
 import cv2
 import numpy as np
+from model import HandJointsDetection
 
-def visualize_predictions(images=torch.Tensor, labels=torch.Tensor, model_path=str, joint_map=list[list[int]]):
+def visualize_pred(image:torch.Tensor, label:torch.Tensor, joint_map:list[list[int]], model: HandJointsDetection):
+
+    channels, H, W = image.size()
+    outputs = model(image)
+
+    heatmaps, visibility = generate_heatmaps(imgsize=(H, W), keypoints=label, std=1, downscale_factor=4)
+    keypoints = heatmaps_to_coords(heatmaps) * 4
+    output = outputs[:, :]
+    output_coords = heatmaps_to_coords(output) * 4
+    processed_img = write_predictions(image, keypoints, output_coords, joint_map, 1, 2, 4)
+
+    return processed_img
+
+def visualize_predictions(images:torch.Tensor, labels:torch.Tensor, joint_map:list[list[int]], model: str | HandJointsDetection):
     
-    net = load_model(model_path)
-    net.eval()
-    no_imgs, _, H, W = images.size()
+    if isinstance(model, str):
+        net = load_model(model)
+        net.eval()
+    else:
+        net = model
+
+    no_imgs, channels, H, W = images.size()
     outputs = net(images)
+
+    processed_images = torch.zeros((no_imgs, channels, H, W))
 
     for ind in tqdm(range(no_imgs)):
         img = images[ind, :, :, :]
         label = labels[ind, :, :]
-        heatmaps, visibility = generate_heatmaps(imgsize=(H, W), keypoints=label, std=1, downscale_factor=4)
-        keypoints = heatmaps_to_coords(heatmaps) * 4
-        output = outputs[ind, :, :]
-        output_coords = heatmaps_to_coords(output) * 4
-        processed_img = write_predictions(img, keypoints, output_coords, joint_map, 1, 2, 4)
 
-        cv2.imwrite(f'./predictions/{ind}.png', processed_img)
+        processed_images[ind, :, :, :] = visualize_pred(img, label, joint_map, net)
+
+    return processed_images
 
 def write_predictions(image, labels, outputs, joint_map, ptsize, lnsize):
 
@@ -161,6 +178,13 @@ def visualize_preds_video(video_path: str, model_path: str, joint_map: list[list
     cap.release()
     out.release()
     print(f"Finished! Video saved to {output_video_path}")
+
+def pred_to_original_size(original_sz, input_sz, preds):
+    
+    ratio = original_sz/input_sz
+    corrected_preds = preds*ratio
+    
+    return corrected_preds
 
 
 if __name__ == '__main__':

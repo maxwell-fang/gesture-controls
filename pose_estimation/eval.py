@@ -7,6 +7,7 @@ from tqdm import tqdm
 from pathlib import Path
 from train import visualize_loss
 from utils import load_model
+from visualize import visualize_predictions
 
 
 def evaluate(models_path='', val_path='', val_annfile_path='', batch_size=32):
@@ -100,5 +101,5 @@ if __name__ == '__main__':
     val_inputs, val_labels = next(iter(val_dl))
     images = val_inputs.to(device)
     
-    visualize_predictions(images, val_labels, './models/65.pt', val_data.joints_map)
+    visualize_predictions(images, val_labels, val_data.joints_map, './models/65.pt')
     
