@@ -1,34 +1,44 @@
-import cv2
-from ultralytics import YOLO
-import numpy as np
+import torch
 
 def pad_bb_square(frame, bb_coords):
-    frame_h, frame_w, __ = frame.shape
 
-    # assumes coords are in (top left x, top left y, bottom right x, bottom right y)
-    w = int(bb_coords[2]) - int(bb_coords[0])
-    h = int(bb_coords[3]) - int(bb_coords[1])
+    frame_h, frame_w, _ = frame.shape
+
+    x1 = int(bb_coords[0].item())
+    y1 = int(bb_coords[1].item())
+    x2 = int(bb_coords[2].item())
+    y2 = int(bb_coords[3].item())
+    
+    w = x2 - x1
+    h = y2 - y1
 
     if w > h:
-        pad_dist = (w - h)/2
-        new_coords = [bb_coords[0], round(bb_coords[1] - pad_dist), bb_coords[2], round(bb_coords[1] + pad_dist)]
+        pad_dist = (w - h) // 2
+        y1 -= pad_dist
+        y2 += pad_dist
+    elif h > w:
+        pad_dist = (h - w) // 2
+        x1 -= pad_dist
+        x2 += pad_dist
 
-    if w < h:
-        pad_dist = (h - w)/2
-        new_coords = [round(bb_coords[0] - pad_dist), bb_coords[1], round(bb_coords[2] - pad_dist), bb_coords[3]]
+    if x1 < 0:
+        x2 -= x1
+        x1 = 0
+    if y1 < 0:
+        y2 -= y1
+        y1 = 0
 
-    if new_coords[0] < 0:
-        new_coords[2] = new_coords[2] - new_coords[0]
+    if x2 > frame_w:
+        x1 -= (x2 - frame_w)
+        x2 = frame_w
+    if y2 > frame_h:
+        y1 -= (y2 - frame_h)
+        y2 = frame_h
 
-    if new_coords[1] < 0:
-        new_coords[3] = new_coords[3] - new_coords[1]
+    x1, y1 = max(0, x1), max(0, y1)
 
-    if new_coords[2] > frame_w:
-        new_coords[0] = new_coords[0] - new_coords[2] + frame_w
-
-    if new_coords[3] > frame_w:
-        new_coords[1] = new_coords[1] - new_coords[3] + frame_w
-        
-    new_image = frame[new_coords[0]:new_coords[2], new_coords[1]:new_coords[3], :]
+    new_image = frame[y1:y2, x1:x2, :]
+    
+    new_coords = [x1, y1, x2, y2]
 
     return new_image, new_coords

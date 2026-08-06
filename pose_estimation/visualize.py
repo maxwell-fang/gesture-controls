@@ -1,24 +1,23 @@
 import torch
 from torchvision import transforms
 from torch.utils.data import DataLoader
-from dataset import HandsDataset
 from tqdm import tqdm
-from utils import load_model
-from dataset import generate_heatmaps
 import cv2
 import numpy as np
-from model import HandJointsDetection
+from pose_estimation import HandJointsDetection, generate_heatmaps, load_model
 
 def visualize_pred(image:torch.Tensor, label:torch.Tensor, joint_map:list[list[int]], model: HandJointsDetection):
 
     channels, H, W = image.size()
-    outputs = model(image)
+    with torch.no_grad():
+        outputs = model(image.unsqueeze(0))
 
     heatmaps, visibility = generate_heatmaps(imgsize=(H, W), keypoints=label, std=1, downscale_factor=4)
     keypoints = heatmaps_to_coords(heatmaps) * 4
+    print(outputs.size())
     output = outputs[:, :]
     output_coords = heatmaps_to_coords(output) * 4
-    processed_img = write_predictions(image, keypoints, output_coords, joint_map, 1, 2, 4)
+    processed_img = write_predictions_labels(image, keypoints, output_coords, joint_map, 1, 2, 4)
 
     return processed_img
 
@@ -31,8 +30,6 @@ def visualize_predictions(images:torch.Tensor, labels:torch.Tensor, joint_map:li
         net = model
 
     no_imgs, channels, H, W = images.size()
-    outputs = net(images)
-
     processed_images = torch.zeros((no_imgs, channels, H, W))
 
     for ind in tqdm(range(no_imgs)):
@@ -43,7 +40,7 @@ def visualize_predictions(images:torch.Tensor, labels:torch.Tensor, joint_map:li
 
     return processed_images
 
-def write_predictions(image, labels, outputs, joint_map, ptsize, lnsize):
+def write_predictions_labels(image, labels, outputs, joint_map, ptsize, lnsize):
 
     label = labels.detach().cpu().numpy().astype(np.uint8) if isinstance(labels, torch.Tensor) else np.array(labels, dtype=np.uint8)
     output = outputs.detach().cpu().numpy().astype(np.uint8) if isinstance(outputs, torch.Tensor) else np.array(outputs, dtype=np.uint8)
@@ -82,6 +79,39 @@ def write_predictions(image, labels, outputs, joint_map, ptsize, lnsize):
 
         img = cv2.line(img, label_jt_1, label_jt_2, (0, 255, 0), lnsize)
         img = cv2.line(img, output_jt_1, output_jt_2, (0, 0, 255), lnsize)
+
+    return img
+
+def write_pose_predictions(image, outputs, joint_map, ptsize=3, lnsize=2):
+    # 1. Handle Torch Tensor -> BGR OpenCV Image conversion safely
+    if isinstance(image, torch.Tensor):
+        img = image.detach().cpu().numpy()
+        if img.shape[0] == 3:  # [3, H, W] -> [H, W, 3]
+            img = img.transpose(1, 2, 0)
+        img = (img * 255.0).clip(0, 255).astype(np.uint8)
+        # PyTorch images are RGB, convert to BGR for OpenCV drawing/saving
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    else:
+        img = image.copy()
+
+    # 2. Extract coordinates while preserving float values
+    if isinstance(outputs, torch.Tensor):
+        coords = outputs.detach().cpu().numpy()
+    else:
+        coords = np.array(outputs)
+
+    coords = coords.reshape(21, 2)
+
+    # 3. Draw Bone Connections
+    for joint_a, joint_b in joint_map:
+        pt1 = (int(round(coords[joint_a, 0])), int(round(coords[joint_a, 1])))
+        pt2 = (int(round(coords[joint_b, 0])), int(round(coords[joint_b, 1])))
+        cv2.line(img, pt1, pt2, (0, 0, 255), lnsize)
+
+    # 4. Draw Joint Points
+    for ind in range(coords.shape[0]):
+        pt = (int(round(coords[ind, 0])), int(round(coords[ind, 1])))
+        cv2.circle(img, pt, ptsize, (0, 255, 0), -1)
 
     return img
 
@@ -157,12 +187,12 @@ def visualize_preds_video(video_path: str, model_path: str, joint_map: list[list
         output_coords = heatmaps_to_coords(output) * 4
 
         # Note: Since this is an un-annotated video file, we don't have ground truth labels.
-        # We dummy-fill a blank tensor for the labels argument to fit your write_predictions function.
+        # We dummy-fill a blank tensor for the labels argument to fit your write_predictions_labels function.
         dummy_label = torch.zeros((21, 2)) 
 
         # 5. Draw the keypoints using your existing function
         # (It automatically converts the tensor back to BGR cv2 image internally)
-        processed_img = write_predictions(
+        processed_img = write_predictions_labels(
             image=img_tensor, 
             labels=dummy_label, 
             outputs=output_coords, 
@@ -185,35 +215,3 @@ def pred_to_original_size(original_sz, input_sz, preds):
     corrected_preds = preds*ratio
     
     return corrected_preds
-
-
-if __name__ == '__main__':
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # evaluate(models_path='./models',
-    #                val_path='../hand_keypoints_dataset/hand_keypoint_dataset_26k/hand_keypoint_dataset_26k/images/val',
-    #                val_annfile_path='../hand_keypoints_dataset/hand_keypoint_dataset_26k/hand_keypoint_dataset_26k/coco_annotation/val/_annotations.coco.json',
-    #                batch_size=16)
-
-    # evaluate_batch(models_path='./models',
-    #                val_path='../hand_keypoints_dataset/hand_keypoint_dataset_26k/hand_keypoint_dataset_26k/images/val',
-    #                val_annfile_path='../hand_keypoints_dataset/hand_keypoint_dataset_26k/hand_keypoint_dataset_26k/coco_annotation/val/_annotations.coco.json',
-    #                batch_size=16)
-    val_path='../hand_keypoints_dataset/hand_keypoint_dataset_26k/hand_keypoint_dataset_26k/images/val'
-    val_annfile_path='../hand_keypoints_dataset/hand_keypoint_dataset_26k/hand_keypoint_dataset_26k/coco_annotation/val/_annotations.coco.json'
-
-    transform = transforms.Compose([transforms.ToTensor()])
-    val_data = HandsDataset(root=val_path, annFile=val_annfile_path, transform=transform, dataset_name='Hand Keypoints Validation Set', heatmaps=False)
-    val_dl = DataLoader(val_data, batch_size=32, shuffle=True, num_workers=3, pin_memory=True, persistent_workers=True)
-
-    val_inputs, val_labels = next(iter(val_dl))
-    images = val_inputs.to(device)
-
-    print(val_inputs.size())
-    
-    visualize_preds_video(
-        video_path='./test_samples/WIN_20260610_16_05_47_Pro.mp4', 
-        model_path='./models/65.pt', 
-        joint_map=val_data.joints_map,
-        target_size=(224, 224),
-        output_video_path='./predictions/hand_tracking_output.mp4'
-    )

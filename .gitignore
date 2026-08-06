@@ -10,3 +10,5 @@
 *.jpg
 *.yaml
 *.csv
+*.json
+*.ipynb
