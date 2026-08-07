@@ -1,5 +1,6 @@
 from torch import nn
 import torch
+from torchvision import transforms
 
 class HandJointsDetection(nn.Module):
 
@@ -50,6 +51,29 @@ class HandJointsDetection(nn.Module):
         y = self.pbbranches_lyrs(y)
 
         return y
+
+    def predict(self, images):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        single = True if len(images.shape) == 3 else False
+
+        normalization = transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225])
+        normalized_input_images = normalization(images)
+        if single:
+            normalized_input_images = normalized_input_images.to(device).unsqueeze(0)
+        else:
+            normalized_input_images = normalized_input_images.to(device)
+        with torch.no_grad():
+            heatmaps = self.forward(normalized_input_images)
+        joints = hard_argmax_2d(heatmaps)
+
+        if single:
+            joints = joints[0]
+
+        joints = joints.to('cpu')
+        return joints
 
 class ResBottleneck(nn.Module):
 
