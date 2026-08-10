@@ -6,6 +6,8 @@ from utils import normalize_keypoints
 import torch
 import pickle as pkl
 import os
+import json
+import pyautogui
 
 class Gesture():
     def __init__(self, name, frame_skip, precision, expansion_coeff):
@@ -16,9 +18,16 @@ class Gesture():
         self.exp_coeff = expansion_coeff
 
         self.keypoints = np.empty(1)
+        self.controls = []
+        self.control_inputs = []
+
+        self.index = -1
 
     def __len__(self):
-        return self.samples
+        return self.keypoints.shape[0]
+
+    def set_index(self, val):
+        self.index = val
 
     def create_keypoints(self, video: np.ndarray | str):
 
@@ -59,6 +68,19 @@ class Gesture():
 
         self.keypoints = final_keypoints
 
+    def read_controls(self, controls):
+
+        if type(controls) is str:
+            with open(controls, 'r') as f:
+                controls_lst = json.load(f)
+
+            self.controls = controls_lst[0]
+            self.control_inputs = controls_lst[1]
+
+        else:
+            self.controls = controls[0]
+            self.control_inputs = controls[1]
+
 def save_gesture(gesture):
 
     if not os.path.exists('gestures'):
@@ -79,5 +101,23 @@ def load_gesture(gesture_path):
     gesture.keypoint_precision = loaded_gesture.keypoint_precision
     gesture.exp_coeff = loaded_gesture.exp_coeff
     gesture.keypoints = loaded_gesture.keypoints
+    gesture.controls = loaded_gesture.controls
+    gesture.control_inputs = loaded_gesture.control_inputs
 
     return gesture
+
+def run_controls(gesture):
+
+    control_names = gesture.controls
+    control_inputs = gesture.control_inputs
+
+    for name, input in zip(control_names, control_inputs):
+
+        if name == 'scroll':
+            pyautogui.scroll(input)
+
+        elif name == 'hotkey':
+            pyautogui.hotkey(input)
+
+        elif name =='press':
+            pyautogui.press(input)
