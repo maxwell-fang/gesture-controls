@@ -17,7 +17,7 @@ class Gesture():
         self.keypoint_precision = precision
         self.exp_coeff = expansion_coeff
 
-        self.keypoints = np.empty(1)
+        self.keypoints = torch.empty()
         self.controls = []
         self.control_inputs = []
 

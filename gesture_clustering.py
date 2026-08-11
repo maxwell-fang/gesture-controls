@@ -4,16 +4,17 @@ from gesture import load_gesture
 from collections import defaultdict
 
 class GestureClustering():
-    def __init__(self, gesture_path, frame_skip):
+    def __init__(self, gesture_path, frame_skip, uncertainty):
         self.path = gesture_path
         self.frame_skip = frame_skip
+        self.uncertainty = uncertainty
         self.gesture_map = {}
         self.gesture_order = []
 
-        self.embeddings = torch.empty(1)
-        self.embedding_row_map = torch.empty(1)
-        self.last_embedding_mask = torch.empty(1)
-        # self.
+        self.embeddings = torch.empty()
+        self.embedding_row_map = torch.empty()
+        self.last_embedding_mask = torch.empty()
+        self.timestep_mask = []
 
         self._load_gesture_embeddings()
     
@@ -31,10 +32,12 @@ class GestureClustering():
                 self.gesture_map[ind] = gesture
                 gesture_lengths[len(gesture)] += 1
 
-            self.gesture_order = sorted(gesture_dict.keys(), key=lambda x: len(gesture_dict[x]))
+            # order by longest gesture embedding
+            self.gesture_order = sorted(gesture_dict.keys(), key=lambda x: len(gesture_dict[x]), reverse=True)
 
             total_keypoints = sum(gesture_lengths.values())
 
+            # pre allocate memory
             self.embeddings = torch.zeros([total_keypoints, 42], dtype=torch.float32)
             embedding_lst = []
 
@@ -42,12 +45,19 @@ class GestureClustering():
             self.embedding_row_map = torch.zeros([total_keypoints, 1], dtype=torch.uint8)
 
             last_embedding = torch.zeros([total_keypoints, 1], dtype=torch.bool)
+
+            timestep_lst = []
             c = 0
 
+            # create matrix of all embeddings
+            # each block matrix is the kth timestep of each gesture with at least k timesteps
+            # block matrix order is set by gesture_order
             for embedding_ind in range(max(gesture_lengths.keys())):
                 tmp_emb_lst = []
                 tmp_ind_lst = []
+                timestep_c = 0
                 for ind in self.gesture_order:
+                    timestep_c += 1
                     gesture = gesture_dict[ind]
                     if len(gesture) - 1 < embedding_ind:
                         break
@@ -60,9 +70,11 @@ class GestureClustering():
                     tmp_ind_lst.append(ind)
                     c += 1
 
+                timestep_lst.append(timestep_c)
                 embedding_lst.append(tmp_emb_lst)
                 ind_lst.append(tmp_ind_lst)
 
+            self.timestep_mask = timestep_lst
             self.embeddings = torch.tensor(embedding_lst)
             self.embedding_row_map = torch.tensor(ind_lst).reshape(-1)
 
@@ -71,9 +83,23 @@ class GestureClustering():
         else:
             raise FileNotFoundError('Gestures folder does not exist.')
 
-    def real_time_clustering(self):
+    def real_time_clustering(self, keypoints, mask, embed_inds):
 
-        pass
+        current_embeddings = self.embeddings[embed_inds[0]:embed_inds[1], :][mask, :]
+
+        row_map = self.embedding_row_map[embed_inds[0]:embed_inds[1], :][mask, :]
+
+        norm_dist = torch.linalg.vector_norm(current_embeddings - keypoints, dim=1)
+
+        confidence_mask = norm_dist < self.uncertainty
+
+        invalid_indices = row_map[~confidence_mask]
+
+        if confidence_mask.sum().item() > 0: 
+            gesture_index = row_map[torch.argmin(norm_dist), :]
+            return gesture_index, invalid_indices
+        else:
+            return -1, torch.empty(0)
 
     def start_clustering(self):
 
@@ -83,3 +109,10 @@ class GestureClustering():
         #     if gesture_ind == -1:
         #         continue
         pass
+
+def preprocess_keypoints():
+    pass
+
+def create_boolean_mask(ind_array, valid_inds):
+    mask = torch.isin(ind_array, valid_inds, assume_unique=True)
+    return mask

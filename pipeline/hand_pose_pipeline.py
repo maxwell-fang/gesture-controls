@@ -5,23 +5,27 @@ import cv2
 import numpy as np
 import torch
 import torchvision.transforms.functional as TF
+from datetime import datetime
 
 class HandPosePipeline():
     def __init__(self, hand_det_path, pose_est_path, device):
         self.detector = YOLO(hand_det_path)
-        self.detector.to(device)
+        # self.detector.to(device)
         self.pose_estimator = load_model(pose_est_path)
         self.pose_estimator.to(device)
         self.device = device
 
     def process_frame(self, frame, exp_coeff=0.4):
-        results = self.detector.predict(frame, verbose=False)[0]
+        results = self.detector.predict(frame, verbose=False, device=0)[0]
+        print(datetime.now())
         boxes = results.boxes[0]
         b = boxes.xyxy[0]
         b = expand_bbox_for_wrist(b, frame.shape, exp_coeff)
         hand_image, coords = pad_bb_square(frame, b)
+        print(datetime.now())
+        input_size = (self.pose_estimator.img_size, self.pose_estimator.img_size)
 
-        input_image = TF.to_tensor(cv2.resize(hand_image, self.pose_estimator.img_size))
+        input_image = TF.to_tensor(cv2.resize(hand_image, input_size))
         keypoints = self.pose_estimator.predict(input_image)
 
         return keypoints, torch.tensor(coords)
@@ -33,6 +37,7 @@ class HandPosePipeline():
         input_frames = frames[::frame_skip, :, :, :]
         hand_frames = torch.zeros((N // frame_skip, self.pose_estimator.img_size, self.self.pose_estimator.img_size, C))
         bbox_coords = []
+        input_size = (self.pose_estimator.img_size, self.pose_estimator.img_size)
 
         results = self.detector.predict(input_frames, verbose=False)
 
@@ -43,7 +48,7 @@ class HandPosePipeline():
             b = expand_bbox_for_wrist(b, (H, W, C), exp_coeff)
             hand_image, coords = pad_bb_square(frame, b)
             bbox_coords.append(coords)
-            hand_frames[i, :, :, :] = TF.to_tensor(cv2.resize(hand_image, self.pose_estimator.img_size))
+            hand_frames[i, :, :, :] = TF.to_tensor(cv2.resize(hand_image, input_size))
 
         keypoints = self.pose_estimator.predict(hand_frames)
 

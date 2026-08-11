@@ -1,4 +1,4 @@
-from pose_estimation import HandJointsDetection, JOINTS_MAP, load_augmented_merged_ds, load_merged_ds, _soft_argmax_2d, write_pose_predictions, load_HanCo_ds
+from pose_estimation import HandJointsDetection, JOINTS_MAP, _soft_argmax_2d, write_pose_predictions, load_HanCo_ds
 import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -38,171 +38,171 @@ def visualize_loss_clean(train_losses, val_losses, file_name=''):
     plt.close()
 
 
-def train_single_batch(batch_size: int, epochs: int, model: HandJointsDetection | None, start_epoch=0, learning_rate=0.0001, load_weights=False, patience=20):
+# def train_single_batch(batch_size: int, epochs: int, model: HandJointsDetection | None, start_epoch=0, learning_rate=0.0001, load_weights=False, patience=20):
 
-    device = torch.device('cuda')
+#     device = torch.device('cuda')
 
-    train_dl, val_dl = load_merged_ds(batch_size=batch_size)
+#     train_dl, val_dl = load_merged_ds(batch_size=batch_size)
 
-    if not isinstance(model, HandJointsDetection):
-        net = HandJointsDetection(img_size=224, embedding_dim=3, joint_map=JOINTS_MAP)
-        train_losses = []
+#     if not isinstance(model, HandJointsDetection):
+#         net = HandJointsDetection(img_size=224, embedding_dim=3, joint_map=JOINTS_MAP)
+#         train_losses = []
         
-    elif load_weights:
-        net = model
-        print('Model Loaded')
-        train_losses = []
+#     elif load_weights:
+#         net = model
+#         print('Model Loaded')
+#         train_losses = []
 
-    else:
-        net = model
-        print('Model Loaded')
-        with open('./pose_estimation/train_losses.json', 'r') as f:
-            train_losses = json.load(f)
+#     else:
+#         net = model
+#         print('Model Loaded')
+#         with open('./pose_estimation/train_losses.json', 'r') as f:
+#             train_losses = json.load(f)
 
-    optimizer = torch.optim.AdamW(net.parameters(), lr=learning_rate)
-    loss_fcn = net.loss_fcn
-    net.to(device)
+#     optimizer = torch.optim.AdamW(net.parameters(), lr=learning_rate)
+#     loss_fcn = net.loss_fcn
+#     net.to(device)
 
-    train_inputs, train_labels = next(iter(train_dl))
+#     train_inputs, train_labels = next(iter(train_dl))
 
-    keypoints, heatmaps, visibility = train_labels
-    target_heatmaps = heatmaps.to(device)
-    visibility = visibility.to(device)
-    train_samples = train_inputs.to(device)
-    train_keypoints = keypoints.to(device)
+#     keypoints, heatmaps, visibility = train_labels
+#     target_heatmaps = heatmaps.to(device)
+#     visibility = visibility.to(device)
+#     train_samples = train_inputs.to(device)
+#     train_keypoints = keypoints.to(device)
 
-    val_inputs, val_labels = next(iter(val_dl))
-    for epoch in tqdm(range(start_epoch, epochs + start_epoch)):
+#     val_inputs, val_labels = next(iter(val_dl))
+#     for epoch in tqdm(range(start_epoch, epochs + start_epoch)):
 
-        net.train()
-        epoch_train_loss = 0.0
-        train_outputs = net(train_samples)
+#         net.train()
+#         epoch_train_loss = 0.0
+#         train_outputs = net(train_samples)
 
-        train_loss = loss_fcn(train_outputs, train_keypoints, target_heatmaps, visibility)
+#         train_loss = loss_fcn(train_outputs, train_keypoints, target_heatmaps, visibility)
 
-        optimizer.zero_grad()
-        train_loss.backward()
-        optimizer.step()
+#         optimizer.zero_grad()
+#         train_loss.backward()
+#         optimizer.step()
 
-        epoch_train_loss = train_loss.item()
+#         epoch_train_loss = train_loss.item()
 
-        train_losses.append(epoch_train_loss)
-        print(f"Heatmap Min: {train_outputs.min().item():.4f}, Max: {train_outputs.max().item():.4f}")
+#         train_losses.append(epoch_train_loss)
+#         print(f"Heatmap Min: {train_outputs.min().item():.4f}, Max: {train_outputs.max().item():.4f}")
 
-        if (epoch + 1) % 10 == 0:
-            net.eval()
-            with torch.no_grad():
-                train_outputs = net(train_samples)
-                sample_heatmaps = train_outputs[0]
-                pred_coords_norm = _soft_argmax_2d(sample_heatmaps.unsqueeze(0), temperature=0.1)[0]
-                pred_coords_px = (pred_coords_norm * 224.0).cpu()
-                fixed_vis_img = train_inputs[0]
-                # Draw on the exact same sample 0 image saved earlier
-                pred_vis = write_pose_predictions(fixed_vis_img, pred_coords_px, JOINTS_MAP)
-                cv2.imwrite(f'./debug_overfit_epoch_{epoch+1}.png', pred_vis)
+#         if (epoch + 1) % 10 == 0:
+#             net.eval()
+#             with torch.no_grad():
+#                 train_outputs = net(train_samples)
+#                 sample_heatmaps = train_outputs[0]
+#                 pred_coords_norm = _soft_argmax_2d(sample_heatmaps.unsqueeze(0), temperature=0.1)[0]
+#                 pred_coords_px = (pred_coords_norm * 224.0).cpu()
+#                 fixed_vis_img = train_inputs[0]
+#                 # Draw on the exact same sample 0 image saved earlier
+#                 pred_vis = write_pose_predictions(fixed_vis_img, pred_coords_px, JOINTS_MAP)
+#                 cv2.imwrite(f'./debug_overfit_epoch_{epoch+1}.png', pred_vis)
 
-        print(f"Epoch [{epoch+1}/{epochs+start_epoch}] Finished. Train Loss: {epoch_train_loss:.4f}")
+#         print(f"Epoch [{epoch+1}/{epochs+start_epoch}] Finished. Train Loss: {epoch_train_loss:.4f}")
 
-def train_merged(batch_size: int, epochs: int, model: HandJointsDetection | None, start_epoch=0, learning_rate=0.0001, load_weights=False, patience=20):
+# def train_merged(batch_size: int, epochs: int, model: HandJointsDetection | None, start_epoch=0, learning_rate=0.0001, load_weights=False, patience=20):
 
-    device = torch.device('cuda')
+#     device = torch.device('cuda')
 
-    train_dl, val_dl = load_augmented_merged_ds(batch_size=batch_size)
+#     train_dl, val_dl = load_augmented_merged_ds(batch_size=batch_size)
 
-    if not isinstance(model, HandJointsDetection):
-        net = HandJointsDetection(img_size=224, embedding_dim=3, joint_map=JOINTS_MAP)
-        train_losses = []
-        val_losses = []
+#     if not isinstance(model, HandJointsDetection):
+#         net = HandJointsDetection(img_size=224, embedding_dim=3, joint_map=JOINTS_MAP)
+#         train_losses = []
+#         val_losses = []
         
-    elif load_weights:
-        net = model
-        print('Model Loaded')
-        train_losses = []
-        val_losses = []
+#     elif load_weights:
+#         net = model
+#         print('Model Loaded')
+#         train_losses = []
+#         val_losses = []
 
-    else:
-        net = model
-        print('Model Loaded')
-        with open('./pose_estimation/train_losses.json', 'r') as f:
-            train_losses = json.load(f)
-        with open('./pose_estimation/val_losses.json', 'r') as f:
-            val_losses = json.load(f)
+#     else:
+#         net = model
+#         print('Model Loaded')
+#         with open('./pose_estimation/train_losses.json', 'r') as f:
+#             train_losses = json.load(f)
+#         with open('./pose_estimation/val_losses.json', 'r') as f:
+#             val_losses = json.load(f)
         
 
-    optimizer = torch.optim.AdamW(net.parameters(), lr=learning_rate, weight_decay=0.05)
-    loss_fcn = net.loss_fcn
-    net.to(device)
+#     optimizer = torch.optim.AdamW(net.parameters(), lr=learning_rate, weight_decay=0.05)
+#     loss_fcn = net.loss_fcn
+#     net.to(device)
     
-    best_val_loss = torch.inf
-    patience_ind = 0
-    prev_val_loss = torch.inf
+#     best_val_loss = torch.inf
+#     patience_ind = 0
+#     prev_val_loss = torch.inf
 
-    for epoch in tqdm(range(start_epoch, epochs + start_epoch)):
+#     for epoch in tqdm(range(start_epoch, epochs + start_epoch)):
 
-        net.train()
-        epoch_train_loss = 0.0
-        for train_inputs, train_labels in tqdm(train_dl):
-            keypoints, heatmaps, visibility = train_labels
-            target_heatmaps = heatmaps.to(device)
-            visibility = visibility.to(device)
-            train_samples = train_inputs.to(device)
-            train_keypoints = keypoints.to(device)
-            train_outputs = net(train_samples)
+#         net.train()
+#         epoch_train_loss = 0.0
+#         for train_inputs, train_labels in tqdm(train_dl):
+#             keypoints, heatmaps, visibility = train_labels
+#             target_heatmaps = heatmaps.to(device)
+#             visibility = visibility.to(device)
+#             train_samples = train_inputs.to(device)
+#             train_keypoints = keypoints.to(device)
+#             train_outputs = net(train_samples)
 
-            train_loss = loss_fcn(train_outputs, train_keypoints, target_heatmaps, visibility)
+#             train_loss = loss_fcn(train_outputs, train_keypoints, target_heatmaps, visibility)
 
-            optimizer.zero_grad()
-            train_loss.backward()
-            optimizer.step()
+#             optimizer.zero_grad()
+#             train_loss.backward()
+#             optimizer.step()
 
-            epoch_train_loss += train_loss.item()
+#             epoch_train_loss += train_loss.item()
 
-        train_losses.append(epoch_train_loss/len(train_dl))
+#         train_losses.append(epoch_train_loss/len(train_dl))
 
-        net.eval()
-        epoch_val_loss = 0.0
-        with torch.no_grad():
-            for val_inputs, val_labels in tqdm(val_dl):
-                keypoints, heatmaps, visibility = val_labels
-                val_target_heatmaps = heatmaps.to(device)
-                val_visibility = visibility.to(device)
-                val_samples = val_inputs.to(device)
-                val_keypoints = keypoints.to(device)
-                val_outputs = net(val_samples)
+#         net.eval()
+#         epoch_val_loss = 0.0
+#         with torch.no_grad():
+#             for val_inputs, val_labels in tqdm(val_dl):
+#                 keypoints, heatmaps, visibility = val_labels
+#                 val_target_heatmaps = heatmaps.to(device)
+#                 val_visibility = visibility.to(device)
+#                 val_samples = val_inputs.to(device)
+#                 val_keypoints = keypoints.to(device)
+#                 val_outputs = net(val_samples)
 
-                val_loss = loss_fcn(val_outputs, val_keypoints, val_target_heatmaps, val_visibility)
+#                 val_loss = loss_fcn(val_outputs, val_keypoints, val_target_heatmaps, val_visibility)
 
-                epoch_val_loss += val_loss.item()
+#                 epoch_val_loss += val_loss.item()
 
-            torch.save(net.state_dict(), f'./pose_estimation/models/{epoch + 1}.pt')
+#             torch.save(net.state_dict(), f'./pose_estimation/models/{epoch + 1}.pt')
 
-        if epoch_val_loss < best_val_loss:
-            best_val_loss = epoch_val_loss
-            torch.save(net.state_dict(), f'./pose_estimation/models/best.pt')
+#         if epoch_val_loss < best_val_loss:
+#             best_val_loss = epoch_val_loss
+#             torch.save(net.state_dict(), f'./pose_estimation/models/best.pt')
 
-        if abs(epoch_val_loss - prev_val_loss) < 1e-3:
-            patience_ind += 1
-        else:
-            patience_ind = 0
+#         if abs(epoch_val_loss - prev_val_loss) < 1e-3:
+#             patience_ind += 1
+#         else:
+#             patience_ind = 0
 
-        val_losses.append(epoch_val_loss/len(val_dl))
+#         val_losses.append(epoch_val_loss/len(val_dl))
 
-        print(f"Epoch [{epoch+1}/{epochs+start_epoch}] Finished. Train Loss: {epoch_train_loss:.4f}, Val Loss: {epoch_val_loss:.4f}")
+#         print(f"Epoch [{epoch+1}/{epochs+start_epoch}] Finished. Train Loss: {epoch_train_loss:.4f}, Val Loss: {epoch_val_loss:.4f}")
         
-        with open('./pose_estimation/train_losses.json', 'w') as f:
-            json.dump(train_losses, f, indent=4)
-        with open('./pose_estimation/val_losses.json', 'w') as f:
-            json.dump(val_losses, f, indent=4)
+#         with open('./pose_estimation/train_losses.json', 'w') as f:
+#             json.dump(train_losses, f, indent=4)
+#         with open('./pose_estimation/val_losses.json', 'w') as f:
+#             json.dump(val_losses, f, indent=4)
 
-        visualize_loss(train_losses=train_losses, val_losses=val_losses, file_name='./pose_estimation/plots/loss_curve.png')
+#         visualize_loss(train_losses=train_losses, val_losses=val_losses, file_name='./pose_estimation/plots/loss_curve.png')
 
-        if patience_ind >= patience:
-            print(f'Model has not improved significantly for {patience} epochs.')
-            return
+#         if patience_ind >= patience:
+#             print(f'Model has not improved significantly for {patience} epochs.')
+#             return
 
-        prev_val_loss = epoch_val_loss
+#         prev_val_loss = epoch_val_loss
 
-    torch.save(net.state_dict(), f'./pose_estimation/models/{epoch + 1}.pt')
+#     torch.save(net.state_dict(), f'./pose_estimation/models/{epoch + 1}.pt')
 
 def train_HanCo(batch_size: int, epochs: int, model: HandJointsDetection | None, start_epoch=0, learning_rate=0.0001, load_weights=False, patience=20):
 

@@ -2,10 +2,8 @@ import torch
 import os
 import json
 import cv2
-from torchvision.datasets import CocoDetection
 from torch.utils.data import Dataset
 import torchvision.transforms as T
-from glob import glob
 
 def generate_heatmaps(imgsize=(224,224), keypoints=torch.Tensor, std=1.0, downscale_factor=4):
 

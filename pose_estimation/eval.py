@@ -1,11 +1,7 @@
-from pose_estimation import visualize_loss, load_model, JOINTS_MAP, expand_bbox_for_wrist, hard_argmax_2d, write_pose_predictions
-from hand_detection import pad_bb_square
+from pose_estimation import load_model, JOINTS_MAP, hard_argmax_2d, write_pose_predictions
+from hand_detection import pad_bb_square, expand_bbox_for_wrist
 import torch
 from torchvision import transforms
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-from pathlib import Path
-import gc
 import os
 from ultralytics import YOLO
 import cv2

@@ -12,3 +12,6 @@
 *.csv
 *.json
 *.ipynb
+*.engine
+*.onnx
+*.onnx.data
