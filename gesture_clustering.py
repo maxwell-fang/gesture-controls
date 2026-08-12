@@ -55,7 +55,11 @@ class GestureClustering():
             for embedding_ind in range(max(gesture_lengths.keys())):
                 tmp_emb_lst = []
                 tmp_ind_lst = []
+
+                # counts block matrix row indices
                 timestep_c = 0
+
+                # creates the block matrices and row map for each block matrix stacked together
                 for ind in self.gesture_order:
                     timestep_c += 1
                     gesture = gesture_dict[ind]

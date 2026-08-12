@@ -15,4 +15,8 @@ def main(config):
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, config['width'])
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config['height'])
 
+    # actual_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+    # actual_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    # print(f"Actual Resolution: {actual_width}x{actual_height}")
+
     while True:

@@ -2,7 +2,7 @@ import cv2
 import torch
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator
-from hand_detection import pad_bb_square
+from hand_detection import pad_bb_square, expand_bbox_for_wrist
 from pose_estimation import write_pose_predictions, pred_to_original_size, HandJointsDetection, load_model, JOINTS_MAP, heatmaps_to_coords
 import torchvision.transforms.functional as TF
 import numpy as np
@@ -38,32 +38,24 @@ def write_predictions_video(hand_det_model: YOLO, pose_est_model: HandJointsDete
                 # Get box coordinates in (left, top, right, bottom) format
                 b = box.xyxy[0]
                 center_x, center_y, __, __ = box.xywh[0]
+                b = expand_bbox_for_wrist(b, frame.shape, 0.40)
                 hand_image, coords = pad_bb_square(frame, b)
                 input_image = TF.to_tensor(cv2.resize(hand_image, pose_in_sz))
-                input_image = input_image.to(device).unsqueeze(0)
+                input_image = input_image.to(device)
 
                 with torch.no_grad():
-                    joints = pose_est_model(input_image)
-                    joints = joints[0, :, :, :]
-
-                joints = heatmaps_to_coords(joints)
-                corrected_joints = pred_to_original_size(coords[2]-coords[0], pose_est_model.img_size, joints)
-                shift = torch.Tensor([[center_y, center_x]])
+                    joints = pose_est_model.predict(input_image)
+                corrected_joints = joints*(coords[2]-coords[0])
+                shift = torch.Tensor([[coords[0], coords[1]]])
                 corrected_joints = corrected_joints + shift
-                print(corrected_joints)
                 frame = write_pose_predictions(frame, corrected_joints, joints_map, 4, 5)
 
-                conf = float(box.conf[0])
-                label = f"{hand_det_model.names[0]} {conf:.2f}"
-                # annotator.box_label(b, label)
-
+                frame = cv2.rectangle(frame, coords[:2], coords[2:4], 3)
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            # frame = annotator.result()
-            out.write(frame)
+        out.write(frame)
 
     cap.release()
     out.release()
-    cv2.destroyAllWindows()
 
 def write_predictions(hand_det_model: YOLO, pose_est_model: HandJointsDetection, joints_map: list[list[int]], in_image_path: str, out_image_path: str):
 

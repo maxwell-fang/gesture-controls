@@ -30,7 +30,7 @@ class HandJointsDetection(nn.Module):
         self.hourglass_lyrs = Hourglass(height=2, depth=2, channels=256, reduction_channels=128)
         self.hourglass_drop = nn.Dropout2d(p=0.15)
 
-        self.pbbranches_lyrs = PartsBasedBranches(branch_groups=[1, 4, 4, 4, 4, 4], width=56)
+        self.pbbranches_lyrs = PartsBasedBranches(branch_groups=[6, 4, 4, 4, 4, 4], width=56)
 
         loss_fcns = [HeatMapsMSELoss()]
         loss_weights = [1.0]
@@ -176,9 +176,14 @@ class PartsBasedBranches(nn.Module):
     def forward(self, x):
         y = []
         
-        for branch in self.branches:
+        for i, branch in enumerate(self.branches):
             branch_out = branch(x)
-            y.append(branch_out)
+            if i == 0:
+                y.append(branch_out[:, 0:1, :, :])
+                knuckles = branch_out[:, 1:, :, :] 
+            else:
+                y.append((branch_out[:, 0:1, :, :] + knuckles[:, i-1:i, :, :])/2.0)
+                y.append(branch_out[:, 1:, :, :])
  
         return torch.cat(y, dim=1)
     

@@ -9,8 +9,7 @@ from datetime import datetime
 
 class HandPosePipeline():
     def __init__(self, hand_det_path, pose_est_path, device):
-        self.detector = YOLO(hand_det_path)
-        # self.detector.to(device)
+        self.detector = YOLO(hand_det_path, task='detect')
         self.pose_estimator = load_model(pose_est_path)
         self.pose_estimator.to(device)
         self.device = device
