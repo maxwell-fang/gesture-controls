@@ -211,7 +211,7 @@ def train_HanCo(batch_size: int, epochs: int, model: HandJointsDetection | None,
     train_dl, val_dl = load_HanCo_ds(batch_size=batch_size, num_samples_per_epoch=24000)
 
     if not isinstance(model, HandJointsDetection):
-        net = HandJointsDetection(img_size=224, embedding_dim=3, joint_map=JOINTS_MAP)
+        net = HandJointsDetection(img_size=224, no_stacks=3, embedding_dim=3, joint_map=JOINTS_MAP)
         train_losses = []
         val_losses = []
         

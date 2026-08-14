@@ -131,7 +131,7 @@ class HanCoDataset(Dataset):
         valid_depth = (Z > 0.0)
         visibility = (in_bounds_x & in_bounds_y & valid_depth).float()
 
-        target_heatmaps = generate_heatmaps(imgsize=(224,224), keypoints=torch.stack([x_pixel, y_pixel, visibility], dim=-1), std=1.0, downscale_factor=4)
+        target_heatmaps = generate_heatmaps(imgsize=(224,224), keypoints=torch.stack([x_pixel, y_pixel, visibility], dim=-1), std=2.0, downscale_factor=4)
 
         return {
             'image': image,                         # Transformed tensor
@@ -199,7 +199,7 @@ class FreiHand(Dataset):
         valid_depth = (Z > 0.0)
         visibility = (in_bounds_x & in_bounds_y & valid_depth).float()
 
-        target_heatmaps = generate_heatmaps(imgsize=(224,224), keypoints=torch.stack([x_pixel, y_pixel, visibility], dim=-1), std=1.0, downscale_factor=4)
+        target_heatmaps = generate_heatmaps(imgsize=(224,224), keypoints=torch.stack([x_pixel, y_pixel, visibility], dim=-1), std=2.0, downscale_factor=4)
 
         return {
             'image': image,                         # Transformed tensor

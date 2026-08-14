@@ -3,34 +3,23 @@ import torch
 from torchvision import transforms
 
 class HandJointsDetection(nn.Module):
-
-    def __init__(self,joint_map: list, img_size=224, embedding_dim=3):
-        self.img_size = img_size
-        self.embedding_dim = embedding_dim
-        self.joint_map = joint_map
+    def __init__(self, no_stacks, img_size, joint_map: list, embedding_dim=3):
         super().__init__()
+        self.no_stacks = no_stacks
+        self.img_size = img_size
+        self.joint_map = joint_map
+        self.embedding_dim = embedding_dim
 
-        self.conv_pool_lyrs = nn.ModuleList()
-        self.conv_pool_lyrs.append(nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, padding=1))
-        self.conv_pool_lyrs.append(nn.BatchNorm2d(num_features=64))
-        self.conv_pool_lyrs.append(nn.LeakyReLU())
-        self.conv_pool_lyrs.append(nn.MaxPool2d(kernel_size=2, stride=2))
-        self.conv_pool_lyrs.append(nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1))
-        self.conv_pool_lyrs.append(nn.BatchNorm2d(num_features=64))
-        self.conv_pool_lyrs.append(nn.LeakyReLU())
-        self.conv_pool_lyrs.append(nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1))
-        self.conv_pool_lyrs.append(nn.BatchNorm2d(num_features=64))
-        self.conv_pool_lyrs.append(nn.LeakyReLU())
-        self.conv_pool_lyrs.append(ResBottleneck(reduction_channels=32, in_channels=64, out_channels=128))
-        self.conv_pool_lyrs.append(nn.MaxPool2d(kernel_size=2, stride=2))
-        self.conv_pool_lyrs.append(ResBottleneck(reduction_channels=64, in_channels=128, out_channels=128))
-        self.conv_pool_lyrs.append(ResBottleneck(reduction_channels=128, in_channels=128, out_channels=256))
-        self.bottleneck_drop = nn.Dropout2d(p=0.2)
-        
-        self.hourglass_lyrs = Hourglass(height=2, depth=2, channels=256, reduction_channels=128)
-        self.hourglass_drop = nn.Dropout2d(p=0.15)
+        self.stacks = nn.ModuleList()
 
-        self.pbbranches_lyrs = PartsBasedBranches(branch_groups=[6, 4, 4, 4, 4, 4], width=56)
+        for i in range(self.no_stacks):
+            is_last = (i + 1 == self.no_stacks)
+            is_first = (i == 0)
+
+            in_channels = 3 if is_first else 256
+            
+            self.stacks.append(
+                PartsBasedNetwork(in_channels=in_channels, last_net=is_last))
 
         loss_fcns = [HeatMapsMSELoss()]
         loss_weights = [1.0]
@@ -39,19 +28,16 @@ class HandJointsDetection(nn.Module):
 
     def forward(self, x):
         y = x
-        for lyr in self.conv_pool_lyrs:
-            y = lyr(y)
+        pbn_heatmaps = []
+        for pbn in self.stacks:
+            heatmaps, y = pbn(y)
+            pbn_heatmaps.append(heatmaps)
+        if self.training:
+            return pbn_heatmaps, y
 
-        y = self.bottleneck_drop(y)
-        
-        y = self.hourglass_lyrs(y)
+        return pbn_heatmaps[-1]
 
-        y = self.hourglass_drop(y)
-
-        y = self.pbbranches_lyrs(y)
-
-        return y
-
+    
     def predict(self, images):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -74,6 +60,58 @@ class HandJointsDetection(nn.Module):
 
         joints = joints.to('cpu')
         return joints
+
+class PartsBasedNetwork(nn.Module):
+
+    def __init__(self, in_channels=3, last_net=False):
+        super().__init__()
+        self.last_net = last_net
+
+        self.conv_pool = nn.Sequential(
+        nn.Conv2d(in_channels=in_channels, out_channels=64, kernel_size=3, padding=1),
+        nn.BatchNorm2d(num_features=64),
+        nn.LeakyReLU(),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+        nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
+        nn.BatchNorm2d(num_features=64),
+        nn.LeakyReLU(),
+        nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
+        nn.BatchNorm2d(num_features=64),
+        nn.LeakyReLU(),
+        ResBottleneck(reduction_channels=32, in_channels=64, out_channels=128),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+        ResBottleneck(reduction_channels=64, in_channels=128, out_channels=128),
+        ResBottleneck(reduction_channels=128, in_channels=128, out_channels=256))
+        self.bottleneck_drop = nn.Dropout2d(p=0.2)
+        
+        self.hourglass_lyrs = Hourglass(height=2, depth=2, channels=256, reduction_channels=128)
+        self.hourglass_drop = nn.Dropout2d(p=0.15)
+
+        self.pbbranches_lyrs = PartsBasedBranches(branch_groups=[6, 4, 4, 4, 4, 4], width=56)
+
+        if not self.last_net:
+            self.fuse_lyr = FuseLayer(width=21)
+        else:
+            self.fuse_lyr = None
+
+    def forward(self, x):
+
+        conv_pool_out = self.conv_pool(x)
+
+        y = self.bottleneck_drop(conv_pool_out)
+        
+        hourglass_out = self.hourglass_lyrs(y)
+
+        y = self.hourglass_drop(hourglass_out)
+
+        heatmaps = self.pbbranches_lyrs(y)
+
+        if not self.last_net:
+            fused = self.fuse_lyr(conv_pool_out, heatmaps, hourglass_out)
+        else:
+            fused = None
+
+        return heatmaps, fused
 
 class ResBottleneck(nn.Module):
 
@@ -169,24 +207,36 @@ class PartsBasedBranches(nn.Module):
             ResBottleneck(reduction_channels=32, in_channels=64, out_channels=64),
             nn.Conv2d(in_channels=64, out_channels=branch_groups[branch], kernel_size=1),
             nn.BatchNorm2d(num_features=branch_groups[branch]),
-            nn.LeakyReLU())
+            nn.Sigmoid())
 
             self.branches.append(branch_lyrs)
 
     def forward(self, x):
         y = []
-        
+
         for i, branch in enumerate(self.branches):
             branch_out = branch(x)
             if i == 0:
                 y.append(branch_out[:, 0:1, :, :])
-                knuckles = branch_out[:, 1:, :, :] 
+                knuckles = branch_out[:, 1:, :, :]
             else:
                 y.append((branch_out[:, 0:1, :, :] + knuckles[:, i-1:i, :, :])/2.0)
                 y.append(branch_out[:, 1:, :, :])
  
         return torch.cat(y, dim=1)
-    
+
+class FuseLayer(nn.Module):
+    def __init__(self, width=21):
+        self.width = width
+        super().__init__()
+
+        self.conv_layer = nn.Conv2d(in_channels=self.width, out_channels=256, kernel_size=1)
+
+    def forward(self, hourglass_input, heatmap_input, hourglass_output):
+        y = hourglass_input + hourglass_output + self.conv_layer(heatmap_input)
+
+        return y
+        
 class HeatMapsMSELoss(nn.Module):
     def __init__(self):
         super().__init__()
