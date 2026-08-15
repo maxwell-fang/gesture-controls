@@ -20,3 +20,22 @@ def main(config):
     # print(f"Actual Resolution: {actual_width}x{actual_height}")
 
     while True:
+
+
+if not cap.isOpened():
+    print("Error: Could not access the webcam.")
+else:
+    print("Webcam accessed successfully!")
+ 
+# Read the first frame to confirm capturing
+ret, frame = cap.read()
+ 
+if ret:
+ 
+    # Display the frame using imshow
+    cv2.imwrite('./test.png', frame)
+else:
+    print("Error: Could not capture a frame.")
+ 
+# Release the webcam
+cap.release()

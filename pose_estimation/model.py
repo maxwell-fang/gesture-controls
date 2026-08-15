@@ -10,7 +10,29 @@ class HandJointsDetection(nn.Module):
         self.joint_map = joint_map
         self.embedding_dim = embedding_dim
 
+        self.conv_pool = nn.Sequential(
+        nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, padding=1),
+        nn.BatchNorm2d(num_features=64),
+        nn.LeakyReLU(),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+        nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
+        nn.BatchNorm2d(num_features=64),
+        nn.LeakyReLU(),
+        nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
+        nn.BatchNorm2d(num_features=64),
+        nn.LeakyReLU(),
+        ResBottleneck(reduction_channels=32, in_channels=64, out_channels=128),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+        ResBottleneck(reduction_channels=64, in_channels=128, out_channels=128),
+        ResBottleneck(reduction_channels=128, in_channels=128, out_channels=256))
+
+        self.bottleneck_drop = nn.Dropout2d(p=0.2)
+
         self.stacks = nn.ModuleList()
+
+        loss_fcns = []
+        loss_weights = []
+
 
         for i in range(self.no_stacks):
             is_last = (i + 1 == self.no_stacks)
@@ -19,16 +41,19 @@ class HandJointsDetection(nn.Module):
             in_channels = 3 if is_first else 256
             
             self.stacks.append(
-                PartsBasedNetwork(in_channels=in_channels, last_net=is_last))
+                PartsBasedNetwork(last_net=is_last))
 
-        loss_fcns = [HeatMapsMSELoss()]
-        loss_weights = [1.0]
+            loss_fcns.append(HeatMapsMSELoss())
+            loss_weights.append(1.0)
 
         self.loss_fcn = CombinedLoss(loss_fcns=loss_fcns, weights=loss_weights)
 
     def forward(self, x):
         y = x
         pbn_heatmaps = []
+
+        y = self.conv_pool(y)
+        y = self.bottleneck_drop(y)
         for pbn in self.stacks:
             heatmaps, y = pbn(y)
             pbn_heatmaps.append(heatmaps)
@@ -63,26 +88,9 @@ class HandJointsDetection(nn.Module):
 
 class PartsBasedNetwork(nn.Module):
 
-    def __init__(self, in_channels=3, last_net=False):
+    def __init__(self, last_net=False):
         super().__init__()
         self.last_net = last_net
-
-        self.conv_pool = nn.Sequential(
-        nn.Conv2d(in_channels=in_channels, out_channels=64, kernel_size=3, padding=1),
-        nn.BatchNorm2d(num_features=64),
-        nn.LeakyReLU(),
-        nn.MaxPool2d(kernel_size=2, stride=2),
-        nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
-        nn.BatchNorm2d(num_features=64),
-        nn.LeakyReLU(),
-        nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
-        nn.BatchNorm2d(num_features=64),
-        nn.LeakyReLU(),
-        ResBottleneck(reduction_channels=32, in_channels=64, out_channels=128),
-        nn.MaxPool2d(kernel_size=2, stride=2),
-        ResBottleneck(reduction_channels=64, in_channels=128, out_channels=128),
-        ResBottleneck(reduction_channels=128, in_channels=128, out_channels=256))
-        self.bottleneck_drop = nn.Dropout2d(p=0.2)
         
         self.hourglass_lyrs = Hourglass(height=2, depth=2, channels=256, reduction_channels=128)
         self.hourglass_drop = nn.Dropout2d(p=0.15)
@@ -95,19 +103,15 @@ class PartsBasedNetwork(nn.Module):
             self.fuse_lyr = None
 
     def forward(self, x):
-
-        conv_pool_out = self.conv_pool(x)
-
-        y = self.bottleneck_drop(conv_pool_out)
         
-        hourglass_out = self.hourglass_lyrs(y)
+        hourglass_out = self.hourglass_lyrs(x)
 
         y = self.hourglass_drop(hourglass_out)
 
         heatmaps = self.pbbranches_lyrs(y)
 
         if not self.last_net:
-            fused = self.fuse_lyr(conv_pool_out, heatmaps, hourglass_out)
+            fused = self.fuse_lyr(x, heatmaps, hourglass_out)
         else:
             fused = None
 
@@ -316,22 +320,46 @@ class MultimodalPenalty(nn.Module):
         loss = masked_loss.sum() / ((visibility > 0).sum() + 1e-8)
         return loss
     
+# class CombinedLoss(nn.Module):
+#     def __init__(self, loss_fcns, weights):
+#         super().__init__()
+#         self.loss_fcns = loss_fcns
+#         self.weights = weights
+    
+#     def forward(self, inputs, target_keypoints, target_heatmaps, visibility):
+
+#         loss = 0.0
+
+#         for loss_fcn, weight in zip(self.loss_fcns, self.weights):
+
+#             if loss_fcn.target_type == 'keypoint':
+#                 loss += weight*loss_fcn(inputs, target_keypoints, visibility)
+#             elif loss_fcn.target_type == 'heatmap':
+#                 loss += weight*loss_fcn(inputs, target_heatmaps, visibility)
+
+#         return loss
+
 class CombinedLoss(nn.Module):
     def __init__(self, loss_fcns, weights):
         super().__init__()
         self.loss_fcns = loss_fcns
         self.weights = weights
     
-    def forward(self, inputs, target_keypoints, target_heatmaps, visibility):
+    def forward(self, heatmaps, target_keypoints, target_heatmaps, visibility):
 
         loss = 0.0
 
-        for loss_fcn, weight in zip(self.loss_fcns, self.weights):
+        if not isinstance(heatmaps, list):
+            loss_fcn = self.loss_fcns[0]
+            loss = loss_fcn(heatmaps, target_heatmaps, visibility)
+            return loss
+
+        for loss_fcn, weight, heatmap in zip(self.loss_fcns, self.weights, heatmaps):
 
             if loss_fcn.target_type == 'keypoint':
-                loss += weight*loss_fcn(inputs, target_keypoints, visibility)
+                loss += weight*loss_fcn(heatmap, target_keypoints, visibility)
             elif loss_fcn.target_type == 'heatmap':
-                loss += weight*loss_fcn(inputs, target_heatmaps, visibility)
+                loss += weight*loss_fcn(heatmap, target_heatmaps, visibility)
 
         return loss
 

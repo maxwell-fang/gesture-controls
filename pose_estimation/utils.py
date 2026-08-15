@@ -23,7 +23,7 @@ JOINTS_MAP = [
 ]
 
 def load_model(path=''):
-    net = HandJointsDetection(joint_map=JOINTS_MAP)
+    net = HandJointsDetection(no_stacks=3, img_size=56, joint_map=JOINTS_MAP)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     net.load_state_dict(torch.load(path, map_location=device, weights_only=True))
     net.to(device)

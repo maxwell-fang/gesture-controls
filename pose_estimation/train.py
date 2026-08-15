@@ -3,7 +3,7 @@ import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import json
-import cv2
+import gc
 
 def visualize_loss(train_losses, val_losses, file_name=''):
     plt.figure()
@@ -208,7 +208,7 @@ def train_HanCo(batch_size: int, epochs: int, model: HandJointsDetection | None,
 
     device = torch.device('cuda')
 
-    train_dl, val_dl = load_HanCo_ds(batch_size=batch_size, num_samples_per_epoch=24000)
+    train_dl, val_dl = load_HanCo_ds(batch_size=batch_size, num_samples_per_epoch=16000)
 
     if not isinstance(model, HandJointsDetection):
         net = HandJointsDetection(img_size=224, no_stacks=3, embedding_dim=3, joint_map=JOINTS_MAP)
@@ -247,9 +247,9 @@ def train_HanCo(batch_size: int, epochs: int, model: HandJointsDetection | None,
             train_keypoints = train_data['keypoints_2d_norm'].to(device)
             visibility = train_data['visibility'].to(device)
             target_heatmaps = train_data['target_heatmaps'].to(device)
-            train_outputs = net(train_samples)
+            train_heatmaps, train_outputs = net(train_samples)
 
-            train_loss = loss_fcn(train_outputs, train_keypoints, target_heatmaps, visibility)
+            train_loss = loss_fcn(train_heatmaps, train_keypoints, target_heatmaps, visibility)
 
             optimizer.zero_grad()
             train_loss.backward()
@@ -259,6 +259,10 @@ def train_HanCo(batch_size: int, epochs: int, model: HandJointsDetection | None,
 
         train_losses.append(epoch_train_loss/len(train_dl))
 
+        del train_samples, train_keypoints, visibility, target_heatmaps, train_heatmaps, train_outputs, train_loss
+        gc.collect()
+        torch.cuda.empty_cache()
+
         net.eval()
         epoch_val_loss = 0.0
         with torch.no_grad():
@@ -267,9 +271,8 @@ def train_HanCo(batch_size: int, epochs: int, model: HandJointsDetection | None,
                 val_keypoints = val_data['keypoints_2d_norm'].to(device)
                 val_visibility = val_data['visibility'].to(device)
                 val_target_heatmaps = val_data['target_heatmaps'].to(device)
-                val_outputs = net(val_samples)
-
-                val_loss = loss_fcn(val_outputs, val_keypoints, val_target_heatmaps, val_visibility)
+                val_heatmaps = net(val_samples)
+                val_loss = loss_fcn(val_heatmaps, val_keypoints, val_target_heatmaps, val_visibility)
 
                 epoch_val_loss += val_loss.item()
 
@@ -300,5 +303,9 @@ def train_HanCo(batch_size: int, epochs: int, model: HandJointsDetection | None,
             return
 
         prev_val_loss = epoch_val_loss
+
+        del val_samples, val_keypoints, val_visibility, val_target_heatmaps, val_heatmaps, val_loss
+        gc.collect()
+        torch.cuda.empty_cache()
 
     torch.save(net.state_dict(), f'./pose_estimation/models/{epoch + 1}.pt')
